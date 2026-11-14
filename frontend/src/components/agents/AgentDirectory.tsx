@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AgentCard } from "@/components/agents/AgentCard";
+import { CreateAgentCard, YourAgents } from "@/components/agents/builder/YourAgents";
 import { AppShell } from "@/components/AppShell";
 import { FEATURED_AGENTS, type AgentCategory } from "@/lib/agentsCatalog";
 
@@ -47,9 +48,14 @@ export function AgentDirectory() {
       </div>
 
       {agents.length === 0 ? (
-        <p className="mt-10 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-          No {category ? `${category} ` : ""}agents listed yet.
-        </p>
+        <>
+          <p className="mt-10 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+            No {category ? `${category} ` : ""}agents listed yet.
+          </p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <CreateAgentCard />
+          </div>
+        </>
       ) : (
         <section className="mt-8">
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -64,9 +70,12 @@ export function AgentDirectory() {
             {agents.map((agent) => (
               <AgentCard key={agent.id} agent={agent} />
             ))}
+            <CreateAgentCard />
           </div>
         </section>
       )}
+
+      <YourAgents />
     </AppShell>
   );
 }
