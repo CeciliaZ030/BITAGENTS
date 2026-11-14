@@ -8,4 +8,4 @@ uvicorn>=0.30.0
 psycopg2-binary>=2.9.9
 yfinance>=0.2.40
 pycryptodome>=3.20.0
-circle-developer-controlled-wallets
+circle-developer-controlled-walletscryptography

@@ -11,7 +11,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from . import compiler, market, store, strategies
+from . import aomi_bridge, compiler, market, store, strategies
 from .contract import Context
 from .spec import AgentSpec, Unsupported, compose_spec
 
@@ -164,26 +164,27 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
             raise HTTPException(409, "This agent is not deployed.")
         return evaluate(a, body.wallet, body.build, "app")
 
-    def _aomi_unavailable() -> None:
-        # The Aomi leg (agent wallet, chat, signing) is wired in the next change.
-        if not os.environ.get("AOMI_BACKEND_URL"):
-            raise HTTPException(503, "This server is not connected to an Aomi backend yet (AOMI_BACKEND_URL is not set). "
-                                     "Signals, compile and the run log work; agent wallet, chat and signing do not.")
-        raise HTTPException(503, "Aomi backend is configured but the wallet and chat bridge is not implemented yet.")
+    class ChatBody(BaseModel):
+        message: str = Field(min_length=1, max_length=4000)
+        session_id: Optional[str] = None
+
+    def _with_balances(st: dict[str, Any]) -> dict[str, Any]:
+        if st.get("wallet"):
+            held, sol = market.holdings(st["wallet"]["address"])
+            st["wallet"]["sol"] = sol
+            st["wallet"]["cash_usd"] = next((h.amount for h in held if h.mint == market.USDC["mint"]), 0.0)
+        return st
 
     @r.get("/agents/{agent_id}/aomi")
-    def aomi_state(agent_id: str, _: str = Depends(require_wallet_session)) -> dict[str, Any]:
-        _agent(agent_id)
-        _aomi_unavailable()
+    def aomi_state(agent_id: str, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
+        return _with_balances(aomi_bridge.state(wallet, _agent(agent_id)["app_name"]))
 
     @r.post("/agents/{agent_id}/aomi/wallet")
-    def aomi_wallet(agent_id: str, _: str = Depends(require_wallet_session)) -> dict[str, Any]:
-        _agent(agent_id)
-        _aomi_unavailable()
+    def aomi_wallet(agent_id: str, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
+        return _with_balances(aomi_bridge.create_wallet(wallet, _agent(agent_id)["app_name"]))
 
     @r.post("/agents/{agent_id}/chat")
-    def chat(agent_id: str, _: str = Depends(require_wallet_session)) -> dict[str, Any]:
-        _agent(agent_id)
-        _aomi_unavailable()
+    def chat(agent_id: str, body: ChatBody, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
+        return aomi_bridge.chat(wallet, _agent(agent_id)["app_name"], body.message, body.session_id)
 
     return r
