@@ -27,6 +27,11 @@ class EvaluateBody(BaseModel):
     build: bool = False
 
 
+class ChatBody(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    session_id: Optional[str] = None
+
+
 def _public(a: dict[str, Any]) -> dict[str, Any]:
     return {k: a[k] for k in ("id", "owner_wallet", "prompt", "spec", "spec_sha", "compose_meta",
                               "app_name", "build_status", "build", "created_at", "updated_at")}
@@ -163,10 +168,6 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
         if a["build_status"] != "ready":
             raise HTTPException(409, "This agent is not deployed.")
         return evaluate(a, body.wallet, body.build, "app")
-
-    class ChatBody(BaseModel):
-        message: str = Field(min_length=1, max_length=4000)
-        session_id: Optional[str] = None
 
     def _with_balances(st: dict[str, Any]) -> dict[str, Any]:
         if st.get("wallet"):
