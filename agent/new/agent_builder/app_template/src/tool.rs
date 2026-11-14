@@ -71,17 +71,15 @@ impl DynAomiTool for Run {
     type Args = RunArgs;
 
     const NAME: &'static str = "{{TOOL_PREFIX}}_run";
-    const DESCRIPTION: &'static str = "Run the strategy once for the connected wallet. Returns the decision and, for each order, the exact unsigned swap instructions to stage with svm_stage_ix. Does not sign or send anything itself.";
+    const DESCRIPTION: &'static str = "Run the strategy once for the connected wallet. Returns the decision and a `next` field saying what to do. A live agent returns exact unsigned swap instructions to stage with svm_stage_ix; a paper agent returns fills already simulated on mainnet. Does not sign or send anything itself.";
 
     fn run(_app: &Agent, _args: RunArgs, ctx: DynToolCallCtx) -> Result<Value, String> {
         let wallet = wallet(&ctx)?;
         let mut out = api(&ctx, "evaluate", json!({ "wallet": wallet, "build": true }))?;
-        let orders = out["orders"].as_array().map(Vec::len).unwrap_or(0);
-        out["next"] = if orders == 0 {
-            json!("No orders this run. Report the signals and notes to the user. Do not stage anything.")
-        } else {
-            json!("For each order, in order: call svm_stage_ix with exactly that order's `stage` object, then svm_simulate for the staged ids, then svm_commit_txs. Copy the instructions verbatim. Never change an account, amount or program.")
-        };
+        // The strategy service says what happens next: stage for signing (live) or report simulated fills (paper).
+        if out.get("next").is_none() {
+            out["next"] = json!("Report the signals and notes to the user. Do not stage anything.");
+        }
         Ok(out)
     }
 }

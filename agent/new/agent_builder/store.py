@@ -39,6 +39,18 @@ SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS built_agent_runs_agent ON built_agent_runs (agent_id, created_at DESC)",
+    # paper: orders are simulated on mainnet against a paper book. live: orders are staged for signing.
+    "ALTER TABLE built_agents ADD COLUMN IF NOT EXISTS mode VARCHAR(8) NOT NULL DEFAULT 'paper'",
+    """
+    CREATE TABLE IF NOT EXISTS built_agent_paper (
+        agent_id    VARCHAR(16) NOT NULL REFERENCES built_agents(id) ON DELETE CASCADE,
+        wallet      VARCHAR(64) NOT NULL,
+        cash_usd    NUMERIC NOT NULL,
+        positions   JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (agent_id, wallet)
+    )
+    """,
 ]
 
 
@@ -105,15 +117,43 @@ def list_runs(agent_id: str, limit: int = 20) -> list[dict[str, Any]]:
         return [_row(r) for r in cur.fetchall()]
 
 
-def spent_today_usd(agent_id: str, wallet: str) -> float:
-    """Buys this agent built for this wallet since UTC midnight, from an Aomi-app run."""
+PAPER_START_USD = 100.0
+
+
+def set_mode(agent_id: str, mode: str) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE built_agents SET mode=%s, updated_at=NOW() WHERE id=%s", (mode, agent_id))
+
+
+def paper_book(agent_id: str, wallet: str) -> dict[str, Any]:
+    """The paper balance of `wallet` for this agent: cash and {mint: {symbol, raw, decimals}}. Starts at $100."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO built_agent_paper (agent_id, wallet, cash_usd) VALUES (%s,%s,%s)
+               ON CONFLICT (agent_id, wallet) DO UPDATE SET agent_id = EXCLUDED.agent_id
+               RETURNING cash_usd, positions""",
+            (agent_id, wallet, PAPER_START_USD),
+        )
+        r = cur.fetchone()
+        return {"cash_usd": float(r["cash_usd"]), "positions": r["positions"], "start_usd": PAPER_START_USD}
+
+
+def save_paper_book(agent_id: str, wallet: str, book: dict[str, Any]) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE built_agent_paper SET cash_usd=%s, positions=%s, updated_at=NOW() WHERE agent_id=%s AND wallet=%s",
+                    (book["cash_usd"], json.dumps(book["positions"]), agent_id, wallet))
+
+
+def spent_today_usd(agent_id: str, wallet: str, mode: str) -> float:
+    """Buys since UTC midnight from Aomi-app runs: staged for signing (live) or filled in simulation (paper)."""
+    key = "stage" if mode == "live" else "paper_fill"
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT COALESCE(SUM((o->>'usd')::numeric), 0) AS usd
                FROM built_agent_runs r, jsonb_array_elements(r.orders) o
                WHERE r.agent_id=%s AND r.wallet=%s AND r.built AND r.caller='app'
-                 AND o->>'side'='buy' AND o ? 'stage'
+                 AND o->>'side'='buy' AND o ? %s
                  AND r.created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'""",
-            (agent_id, wallet),
+            (agent_id, wallet, key),
         )
         return float(cur.fetchone()["usd"])

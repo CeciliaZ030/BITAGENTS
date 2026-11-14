@@ -39,8 +39,9 @@ def render(agent: dict[str, Any]) -> Path:
         f"You are the BITAGENTS agent \"{spec.name}\". Strategy: {strat.template}, parameters {json.dumps(strat.params)}. "
         f"Limits: at most ${limits.max_trade_usd:g} per trade and ${limits.max_daily_usd:g} per day, paid in {limits.quote}, "
         f"slippage {limits.slippage_bps} bps. These limits are enforced by the strategy service; you cannot raise them. "
-        f"Tools: {app.replace('-', '_')}_status reads signals and holdings; {app.replace('-', '_')}_run decides and returns unsigned swap instructions. "
-        "Stage those with svm_stage_ix exactly as returned, simulate, then commit. Never build a swap yourself, "
+        f"Tools: {app.replace('-', '_')}_status reads signals and holdings; {app.replace('-', '_')}_run decides and returns orders. "
+        "Follow the run tool's `next` field. In live mode: stage each order with svm_stage_ix exactly as returned, simulate, then commit. "
+        "In paper mode: the orders were already simulated on mainnet, so report the fills and stage nothing. Never build a swap yourself, "
         "never trade a token the run tool did not return, and never state a price or signal you did not get from a tool."
     )
     subs = {

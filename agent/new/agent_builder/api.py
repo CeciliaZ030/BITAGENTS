@@ -6,13 +6,13 @@ import hmac
 import os
 import re
 from dataclasses import asdict
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from . import aomi_bridge, compiler, market, store, strategies
-from .contract import Context
+from . import aomi_bridge, compiler, market, paper, store, strategies
+from .contract import Context, Holding
 from .spec import AgentSpec, Unsupported, compose_spec
 
 ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -27,6 +27,10 @@ class EvaluateBody(BaseModel):
     build: bool = False
 
 
+class ModeBody(BaseModel):
+    mode: Literal["paper", "live"]
+
+
 class ChatBody(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     session_id: Optional[str] = None
@@ -34,7 +38,7 @@ class ChatBody(BaseModel):
 
 def _public(a: dict[str, Any]) -> dict[str, Any]:
     return {k: a[k] for k in ("id", "owner_wallet", "prompt", "spec", "spec_sha", "compose_meta",
-                              "app_name", "build_status", "build", "created_at", "updated_at")}
+                              "app_name", "mode", "build_status", "build", "created_at", "updated_at")}
 
 
 def _agent(agent_id: str) -> dict[str, Any]:
@@ -44,18 +48,34 @@ def _agent(agent_id: str) -> dict[str, Any]:
     return a
 
 
+def _paper_holdings(book: dict[str, Any]) -> list[Holding]:
+    return [Holding(mint=m, symbol=p["symbol"], amount=p["raw"] / 10 ** p["decimals"], decimals=p["decimals"])
+            for m, p in book["positions"].items() if p["raw"] > 0]
+
+
 def evaluate(agent: dict[str, Any], wallet: str, build: bool, caller: str) -> dict[str, Any]:
-    """Run the strategy for `wallet`. With build=True each order carries unsigned swap instructions."""
+    """Run the strategy for `wallet`.
+
+    With build=True each order carries a real Jupiter swap for that wallet. A live agent returns
+    it as unsigned instructions for Aomi to stage and sign. A paper agent simulates it on mainnet
+    and books the simulated fill against its paper balance; nothing is staged or sent.
+    """
     if not ADDRESS.match(wallet):
         raise HTTPException(400, "wallet is not a Solana address.")
     spec = AgentSpec.model_validate(agent["spec"])
     tpl = strategies.get(spec.strategy.template)
     limits = spec.limits.model_dump()
-    held, sol = market.holdings(wallet)
+    paper_mode = agent["mode"] != "live"
+    usdc = market.USDC
+    if paper_mode:
+        book = store.paper_book(agent["id"], wallet)
+        held, sol, cash = _paper_holdings(book), None, book["cash_usd"]
+    else:
+        held, sol = market.holdings(wallet)
+        cash = next((h.amount for h in held if h.mint == usdc["mint"]), 0.0)
     market.price_holdings(held)
-    cash = next((h.amount for h in held if h.mint == market.USDC["mint"]), 0.0)
     ctx = Context(wallet=wallet, holdings=held, cash_usd=cash,
-                  spent_today_usd=store.spent_today_usd(agent["id"], wallet))
+                  spent_today_usd=store.spent_today_usd(agent["id"], wallet, agent["mode"]))
     decision = tpl.evaluate(ctx, tpl.Params.model_validate(spec.strategy.params), limits)
     orders: list[dict[str, Any]] = []
     for i, o in enumerate(decision.orders):
@@ -63,35 +83,67 @@ def evaluate(agent: dict[str, Any], wallet: str, build: bool, caller: str) -> di
         if build:
             try:
                 if o.side == "buy":
-                    swap = market.build_swap(payer=wallet, input_mint=market.USDC["mint"], output_mint=o.mint,
-                                             raw_amount=int(round(o.usd * 10 ** market.USDC["decimals"])),
-                                             slippage_bps=spec.limits.slippage_bps)
+                    in_mint, out_mint, raw_in = usdc["mint"], o.mint, int(round(o.usd * 10 ** usdc["decimals"]))
                 else:
                     pos = next(h for h in held if h.mint == o.mint)
-                    swap = market.build_swap(payer=wallet, input_mint=o.mint, output_mint=market.USDC["mint"],
-                                             raw_amount=int(round(pos.amount * 10 ** pos.decimals)),
-                                             slippage_bps=spec.limits.slippage_bps)
-            except Exception as exc:
-                row["build_error"] = str(exc)
-            else:
+                    in_mint, out_mint, raw_in = o.mint, usdc["mint"], int(round(pos.amount * 10 ** pos.decimals))
+                swap = market.build_swap(payer=wallet, input_mint=in_mint, output_mint=out_mint,
+                                         raw_amount=raw_in, slippage_bps=spec.limits.slippage_bps)
                 row["quote"] = {k: swap[k] for k in ("in_amount", "out_amount", "other_amount_threshold",
                                                      "price_impact_pct", "slippage_bps", "tx_bytes")}
-                row["stage"] = {
-                    "instructions": swap["instructions"],
-                    "address_lookup_tables": swap["address_lookup_tables"],
-                    "description": f"{spec.name}: {o.side} ${o.usd:g} of {o.token_symbol} ({o.reason})",
-                    "kind": "swap",
-                }
-                row["unsigned_tx_base64"] = swap["unsigned_tx_base64"]
+                if paper_mode:
+                    sim = paper.simulate_swap(wallet=wallet, swap=swap, input_mint=in_mint, output_mint=out_mint, raw_in=raw_in)
+                    row["simulation"] = sim
+                    if sim["ok"] and caller == "app":
+                        token = market.resolve_xstock(o.symbol)
+                        pos = book["positions"].setdefault(o.mint, {"symbol": o.token_symbol, "raw": 0, "decimals": token["decimals"]})
+                        if o.side == "buy":
+                            book["cash_usd"] -= sim["in_spent_raw"] / 10 ** usdc["decimals"]
+                            pos["raw"] += sim["out_received_raw"]
+                            tokens, usd = sim["out_received_raw"] / 10 ** pos["decimals"], sim["in_spent_raw"] / 10 ** usdc["decimals"]
+                        else:
+                            book["cash_usd"] += sim["out_received_raw"] / 10 ** usdc["decimals"]
+                            pos["raw"] -= sim["in_spent_raw"]
+                            tokens, usd = sim["in_spent_raw"] / 10 ** pos["decimals"], sim["out_received_raw"] / 10 ** usdc["decimals"]
+                        row["paper_fill"] = {"tokens": tokens, "usd": usd, "price_usd": usd / tokens if tokens else None}
+                        store.save_paper_book(agent["id"], wallet, book)
+                else:
+                    row["stage"] = {
+                        "instructions": swap["instructions"],
+                        "address_lookup_tables": swap["address_lookup_tables"],
+                        "description": f"{spec.name}: {o.side} ${o.usd:g} of {o.token_symbol} ({o.reason})",
+                        "kind": "swap",
+                    }
+                    row["unsigned_tx_base64"] = swap["unsigned_tx_base64"]
+            except Exception as exc:
+                row["build_error"] = str(exc)
         orders.append(row)
     out = {
-        "agent_id": agent["id"], "agent": spec.name, "strategy": spec.strategy.template,
+        "agent_id": agent["id"], "agent": spec.name, "strategy": spec.strategy.template, "mode": agent["mode"],
         "wallet": {"address": wallet, "sol": sol, "cash_usd": cash, "quote": spec.limits.quote,
                    "holdings": [asdict(h) for h in held], "spent_today_usd": ctx.spent_today_usd},
         "limits": limits, "signals": decision.signals, "notes": decision.notes, "orders": orders,
     }
+    if paper_mode:
+        after = store.paper_book(agent["id"], wallet)
+        now = _paper_holdings(after)
+        market.price_holdings(now)
+        out["paper"] = {"start_usd": after["start_usd"], "cash_usd": after["cash_usd"], "holdings": [asdict(h) for h in now],
+                        "equity_usd": after["cash_usd"] + sum(h.value_usd or 0 for h in now)}
+        out["wallet"]["note"] = "Paper mode: these balances are the agent's paper book, not on-chain funds."
+        if build:
+            out["next"] = ("PAPER MODE. Each order's real Jupiter swap was already simulated on Solana mainnet and booked to the "
+                           "paper balance; see `simulation` and `paper_fill`. Report the signals, fills and paper balance. "
+                           "Say plainly that this was a simulation and no transaction was sent. Do not call svm_stage_ix, "
+                           "svm_simulate or svm_commit_txs.")
+    elif build:
+        out["next"] = ("For each order, in order: call svm_stage_ix with exactly that order's `stage` object, then svm_simulate "
+                       "for the staged ids, then svm_commit_txs. Copy the instructions verbatim. Never change an account, amount "
+                       "or program." if orders else
+                       "No orders this run. Report the signals and notes to the user. Do not stage anything.")
     out["run_id"] = store.add_run(agent["id"], wallet, caller, build,
-                                  {"signals": decision.signals, "notes": decision.notes, "wallet": out["wallet"]},
+                                  {"mode": agent["mode"], "signals": decision.signals, "notes": decision.notes,
+                                   "wallet": out["wallet"], "paper": out.get("paper")},
                                   [{k: v for k, v in o.items() if k != "unsigned_tx_base64"} for o in orders], None)
     return out
 
@@ -139,6 +191,14 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
         compiler.start(agent_id)
         return _public(_agent(agent_id))
 
+    @r.post("/agents/{agent_id}/mode")
+    def mode(agent_id: str, body: ModeBody, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
+        """paper: runs are simulated on mainnet against a paper balance. live: runs are staged for the agent wallet to sign."""
+        if _agent(agent_id)["owner_wallet"] != wallet:
+            raise HTTPException(403, "Only the creator can change the mode.")
+        store.set_mode(agent_id, body.mode)
+        return _public(_agent(agent_id))
+
     @r.get("/agents/{agent_id}/source", dependencies=[Depends(require_internal_key)])
     def source(agent_id: str) -> dict[str, Any]:
         a = _agent(agent_id)
@@ -169,20 +229,29 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
             raise HTTPException(409, "This agent is not deployed.")
         return evaluate(a, body.wallet, body.build, "app")
 
-    def _with_balances(st: dict[str, Any]) -> dict[str, Any]:
+    def _with_balances(st: dict[str, Any], agent: dict[str, Any]) -> dict[str, Any]:
+        st["mode"] = agent["mode"]
         if st.get("wallet"):
             held, sol = market.holdings(st["wallet"]["address"])
             st["wallet"]["sol"] = sol
             st["wallet"]["cash_usd"] = next((h.amount for h in held if h.mint == market.USDC["mint"]), 0.0)
+            if agent["mode"] != "live":
+                book = store.paper_book(agent["id"], st["wallet"]["address"])
+                now = _paper_holdings(book)
+                market.price_holdings(now)
+                st["paper"] = {"start_usd": book["start_usd"], "cash_usd": book["cash_usd"], "holdings": [asdict(h) for h in now],
+                               "equity_usd": book["cash_usd"] + sum(h.value_usd or 0 for h in now)}
         return st
 
     @r.get("/agents/{agent_id}/aomi")
     def aomi_state(agent_id: str, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
-        return _with_balances(aomi_bridge.state(wallet, _agent(agent_id)["app_name"]))
+        a = _agent(agent_id)
+        return _with_balances(aomi_bridge.state(wallet, a["app_name"]), a)
 
     @r.post("/agents/{agent_id}/aomi/wallet")
     def aomi_wallet(agent_id: str, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
-        return _with_balances(aomi_bridge.create_wallet(wallet, _agent(agent_id)["app_name"]))
+        a = _agent(agent_id)
+        return _with_balances(aomi_bridge.create_wallet(wallet, a["app_name"]), a)
 
     @r.post("/agents/{agent_id}/chat")
     def chat(agent_id: str, body: ChatBody, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:

@@ -24,17 +24,22 @@ import {
   BuilderApiError,
   builderApi,
   errorText,
+  formatAmount,
   formatScore,
   formatTime,
   formatUsd,
   isAbort,
   shortAddress,
+  type AgentMode,
   type AomiState,
   type BuilderAgent,
   type BuilderEvaluation,
+  type BuilderHolding,
+  type BuilderOrder,
   type BuilderRun,
   type BuilderSignal,
   type ChatEvent,
+  type PaperBook,
 } from "@/lib/builderClient";
 
 const RUNS_REFRESH_MS = 30_000;
@@ -98,6 +103,8 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
           </div>
         </Panel>
 
+        <ModePanel agent={agent} token={token} wallet={wallet} onAgent={onAgent} onChanged={bumpActivity} />
+
         <WalletGate
           authBusy={authBusy}
           authError={authError}
@@ -110,12 +117,13 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
             <SignalsPanel
               agentId={agent.id}
               token={token}
+              quote={agent.spec.limits.quote}
               defaultWallet={aomi?.wallet?.address ?? phantomAddress}
               defaultWalletSource={aomi?.wallet?.address ? "Aomi agent wallet" : phantomAddress ? "connected wallet" : null}
               onRun={bumpActivity}
             />
-            <ChatPanel agentId={agent.id} token={token} onReply={bumpActivity} />
-            <RunLogPanel agentId={agent.id} refreshTick={activityTick} />
+            <ChatPanel agentId={agent.id} token={token} quote={agent.spec.limits.quote} onReply={bumpActivity} />
+            <RunLogPanel agentId={agent.id} quote={agent.spec.limits.quote} refreshTick={activityTick} />
             <SourcePanel agentId={agent.id} buildStatus={agent.build_status} />
           </div>
           <div className="min-w-0 space-y-6">
@@ -136,6 +144,246 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
         <LegalSignInNotice />
       </div>
     </AppShell>
+  );
+}
+
+// ------------------------------------------------------------------- mode
+
+const MODE_COPY: Record<AgentMode, { label: string; text: string }> = {
+  paper: {
+    label: "Paper",
+    text: "Runs build the real swap and simulate it on Solana mainnet. Nothing is sent and no funds are needed.",
+  },
+  live: {
+    label: "Live",
+    text: "Runs are staged for the agent wallet to sign. The wallet needs USDC and SOL.",
+  },
+};
+
+function ModeBadge({ mode }: { mode: AgentMode }) {
+  return (
+    <span
+      className={`inline-flex border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] ${
+        mode === "live" ? "border-warn/60 text-warn" : "border-signal/50 text-signal"
+      }`}
+    >
+      {MODE_COPY[mode].label}
+    </span>
+  );
+}
+
+function ModePanel({
+  agent,
+  token,
+  wallet,
+  onAgent,
+  onChanged,
+}: {
+  agent: BuilderAgent;
+  token: string | null;
+  wallet: string | null;
+  onAgent: (agent: BuilderAgent) => void;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mode: AgentMode = agent.mode ?? "paper";
+  const isOwner = Boolean(wallet) && wallet === agent.owner_wallet;
+
+  async function switchTo(next: AgentMode) {
+    if (!token || busy || next === mode) return;
+    if (
+      next === "live" &&
+      !window.confirm(
+        "Switch this agent to live? Live runs are staged for the agent wallet to sign and spend real funds."
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      onAgent(await builderApi.setAgentMode(agent.id, next, token));
+      onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title="Mode" action={<ModeBadge mode={mode} />}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          <span className="font-semibold text-foreground">{MODE_COPY[mode].label}.</span> {MODE_COPY[mode].text}
+        </p>
+        {isOwner && (
+          <div className="flex shrink-0 items-center gap-2">
+            {(["paper", "live"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => void switchTo(option)}
+                disabled={busy || !token}
+                aria-pressed={option === mode}
+                className={
+                  option === mode
+                    ? "border border-signal px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-signal disabled:opacity-40"
+                    : BTN_GHOST
+                }
+              >
+                {MODE_COPY[option].label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {isOwner && !token && (
+        <p className="mt-2 font-mono text-xs text-muted-foreground">Sign in with your wallet to switch mode.</p>
+      )}
+      {busy && <p className="mt-2 animate-pulse font-mono text-xs text-muted-foreground">Switching mode…</p>}
+      {error && <p className="mt-2 break-words font-mono text-xs text-warn">{error}</p>}
+    </Panel>
+  );
+}
+
+// ----------------------------------------------------------------- orders
+
+const USDC_DECIMALS = 6;
+
+/** What was lent to the wallet inside the simulation, or null when nothing was. */
+function lentText(order: BuilderOrder, quote: string, tokenDecimals: number | undefined): string | null {
+  const lent = order.simulation?.lent_in_simulation;
+  if (!lent) return null;
+  const parts: string[] = [];
+  if (lent.input_raw > 0) {
+    if (order.side === "buy") {
+      // Buys spend the quote token (USDC, 6 decimals).
+      parts.push(`${formatAmount(lent.input_raw / 10 ** USDC_DECIMALS)} ${quote}`);
+    } else if (tokenDecimals != null) {
+      parts.push(`${formatAmount(lent.input_raw / 10 ** tokenDecimals)} ${order.token_symbol || order.symbol}`);
+    } else {
+      parts.push(order.token_symbol || order.symbol);
+    }
+  }
+  if (lent.sol > 0) parts.push(`${formatAmount(lent.sol)} SOL`);
+  return parts.length ? `Simulated with ${parts.join(" and ")} lent in-simulation` : null;
+}
+
+/** One order from a preview, a run or a chat tool result. Paper orders show the simulation, never "staged". */
+function OrderRow({
+  order,
+  quote,
+  tokenDecimals,
+}: {
+  order: BuilderOrder;
+  quote: string;
+  tokenDecimals?: number;
+}) {
+  const sim = order.simulation;
+  const fill = order.paper_fill;
+  const token = order.token_symbol || order.symbol;
+  const status = order.build_error
+    ? { label: "Build failed", tone: "text-warn" }
+    : sim
+      ? { label: "Simulated", tone: "text-muted-foreground" }
+      : order.stage
+        ? { label: "Built for signing", tone: "text-muted-foreground" }
+        : { label: "Would place", tone: "text-muted-foreground" };
+  const lent = lentText(order, quote, tokenDecimals);
+
+  return (
+    <div className="border border-grid px-3 py-2 font-mono text-xs">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className={`text-[10px] uppercase tracking-[0.14em] ${status.tone}`}>{status.label}</span>
+        {sim && (
+          <span className={`text-[10px] uppercase tracking-[0.14em] ${sim.ok ? "text-signal" : "text-warn"}`}>
+            {sim.ok ? "Passed" : "Failed"}
+          </span>
+        )}
+        <ActionBadge action={order.side} />
+        <span className="text-foreground">{token}</span>
+        <span className="text-foreground">{formatUsd(order.usd)}</span>
+        <span className="break-words text-muted-foreground">{order.reason}</span>
+      </div>
+      {order.build_error && <p className="mt-2 break-words text-warn">{order.build_error}</p>}
+      {sim && (
+        <div className="mt-2 space-y-1">
+          {fill ? (
+            <p className="text-foreground">
+              {order.side === "sell" ? "Sold" : "Bought"} {formatAmount(fill.tokens)} {token} for {formatUsd(fill.usd)}
+              {fill.price_usd != null && ` at ${formatUsd(fill.price_usd)}`}
+            </p>
+          ) : (
+            sim.ok && <p className="text-muted-foreground">No fill was booked to the paper balance.</p>
+          )}
+          <p className="text-muted-foreground">
+            Slot {sim.slot ?? "-"} · {sim.units_consumed != null ? sim.units_consumed.toLocaleString("en-US") : "-"}{" "}
+            compute units · not sent
+          </p>
+          {!sim.ok && <p className="break-all text-warn">{JSON.stringify(sim.error)}</p>}
+          {lent && <p className="text-muted-foreground">{lent}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrderList({
+  orders,
+  quote,
+  holdings,
+}: {
+  orders: BuilderOrder[];
+  quote: string;
+  /** Holdings from the same result, used to find token decimals for sells. */
+  holdings?: BuilderHolding[];
+}) {
+  return (
+    <div className="space-y-2">
+      {orders.map((order) => (
+        <OrderRow
+          key={order.index}
+          order={order}
+          quote={quote}
+          tokenDecimals={holdings?.find((holding) => holding.mint === order.mint)?.decimals}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PaperBalance({ paper, quote }: { paper: PaperBook; quote: string }) {
+  return (
+    <div className="space-y-3 border border-grid p-3">
+      <div>
+        <div className={LABEL}>Paper balance</div>
+        <p className="mt-1 text-muted-foreground">Simulated funds. Not on-chain.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label={`Cash (${quote})`}>{formatUsd(paper.cash_usd)}</Field>
+        <Field label="Equity">{formatUsd(paper.equity_usd)}</Field>
+        <Field label="Started with">{formatUsd(paper.start_usd)}</Field>
+      </div>
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Holdings</div>
+        {paper.holdings.length === 0 ? (
+          <p className="mt-1 text-muted-foreground">No holdings.</p>
+        ) : (
+          <div className="mt-1 space-y-1">
+            {paper.holdings.map((holding) => (
+              <div key={holding.mint} className="flex flex-wrap justify-between gap-x-4">
+                <span className="text-foreground">
+                  {formatAmount(holding.amount)} {holding.symbol}
+                </span>
+                <span className="text-muted-foreground">{formatUsd(holding.value_usd)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -260,12 +508,14 @@ function SignalRow({ signal }: { signal: BuilderSignal }) {
 function SignalsPanel({
   agentId,
   token,
+  quote,
   defaultWallet,
   defaultWalletSource,
   onRun,
 }: {
   agentId: string;
   token: string | null;
+  quote: string;
   defaultWallet: string | null;
   defaultWalletSource: string | null;
   onRun: () => void;
@@ -348,11 +598,22 @@ function SignalsPanel({
                   <Field label="Wallet">
                     <span title={evalWallet.address}>{shortAddress(evalWallet.address)}</span>
                   </Field>
-                  <Field label={`Cash (${evalWallet.quote})`}>{formatUsd(evalWallet.cash_usd)}</Field>
-                  <Field label="Spent today">{formatUsd(evalWallet.spent_today_usd)}</Field>
+                  <Field label={evaluation.mode === "paper" ? "Paper cash" : `Cash (${evalWallet.quote})`}>
+                    {formatUsd(evalWallet.cash_usd)}
+                  </Field>
+                  <Field label={evaluation.mode === "paper" ? "Paper spent today" : "Spent today"}>
+                    {formatUsd(evalWallet.spent_today_usd)}
+                  </Field>
                 </>
               )}
             </div>
+            {evaluation.mode && (
+              <p className="font-mono text-xs text-muted-foreground">
+                {evaluation.mode === "paper"
+                  ? "Paper mode. These balances are this wallet's paper balance, not on-chain funds."
+                  : "Live mode. These balances are on-chain."}
+              </p>
+            )}
 
             {signals.length === 0 ? (
               <p className="font-mono text-xs text-muted-foreground">The evaluation returned no signals.</p>
@@ -386,19 +647,8 @@ function SignalsPanel({
                   No orders. The agent would not trade on this evaluation.
                 </p>
               ) : (
-                <div className="mt-2 space-y-2">
-                  {orders.map((order) => (
-                    <div
-                      key={order.index}
-                      className="flex flex-wrap items-center gap-x-4 gap-y-1 border border-grid px-3 py-2 font-mono text-xs"
-                    >
-                      <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">would place</span>
-                      <ActionBadge action={order.side} />
-                      <span className="text-foreground">{order.token_symbol || order.symbol}</span>
-                      <span className="text-foreground">{formatUsd(order.usd)}</span>
-                      <span className="break-words text-muted-foreground">{order.reason}</span>
-                    </div>
-                  ))}
+                <div className="mt-2">
+                  <OrderList orders={orders} quote={evalWallet?.quote ?? quote} holdings={evalWallet?.holdings} />
                 </div>
               )}
             </div>
@@ -531,9 +781,13 @@ function AomiWalletPanel({
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="SOL">{state.wallet.sol ?? "-"}</Field>
-                  <Field label={quote}>{state.wallet.cash_usd ?? "-"}</Field>
+                  <Field label="On-chain SOL">{state.wallet.sol ?? "-"}</Field>
+                  <Field label={`On-chain ${quote}`}>{state.wallet.cash_usd ?? "-"}</Field>
                 </div>
+                {state.mode === "paper" && (
+                  <p className="text-muted-foreground">Paper runs do not use these on-chain funds.</p>
+                )}
+                {state.paper && <PaperBalance paper={state.paper} quote={quote} />}
               </>
             ) : (
               <>
@@ -558,6 +812,43 @@ function AomiWalletPanel({
 
 // ------------------------------------------------------------------- chat
 
+/** The run tool returns the evaluation as JSON text. Null when the event is not a run or the text was cut. */
+function runResultOf(event: ChatEvent): BuilderEvaluation | null {
+  if (!event.result) return null;
+  try {
+    const data: unknown = JSON.parse(event.result);
+    if (data && typeof data === "object" && Array.isArray((data as BuilderEvaluation).orders)) {
+      return data as BuilderEvaluation;
+    }
+  } catch {
+    // Not JSON, or cut by the server's 6000 character limit.
+  }
+  return null;
+}
+
+function ChatRunResult({ result, quote }: { result: BuilderEvaluation; quote: string }) {
+  const orders = result.orders ?? [];
+  return (
+    <div className="mt-2 space-y-2">
+      {result.mode && (
+        <p className="text-muted-foreground">
+          {result.mode === "paper" ? "Paper run. Nothing was sent." : "Live run."}
+        </p>
+      )}
+      {orders.length === 0 ? (
+        <p className="text-muted-foreground">No orders.</p>
+      ) : (
+        <OrderList orders={orders} quote={result.wallet?.quote ?? quote} holdings={result.wallet?.holdings} />
+      )}
+      {result.paper && (
+        <p className="text-muted-foreground">
+          Paper balance: cash {formatUsd(result.paper.cash_usd)} · equity {formatUsd(result.paper.equity_usd)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 type ChatLine =
   | { id: string; role: "user"; content: string }
   | { id: string; role: "agent"; content: string; events: ChatEvent[] }
@@ -566,10 +857,12 @@ type ChatLine =
 function ChatPanel({
   agentId,
   token,
+  quote,
   onReply,
 }: {
   agentId: string;
   token: string | null;
+  quote: string;
   onReply: () => void;
 }) {
   const [lines, setLines] = useState<ChatLine[]>([]);
@@ -652,13 +945,16 @@ function ChatPanel({
             )}
             {line.role === "agent" && line.events.length > 0 && (
               <div className="mt-3 space-y-2 border-t border-grid pt-3">
-                {line.events.map((item, index) => (
+                {line.events.map((item, index) => {
+                  const runResult = runResultOf(item);
+                  return (
                   <div key={index} className="font-mono text-[11px] leading-relaxed">
                     <span className="uppercase tracking-[0.14em] text-signal">{item.type}</span>
                     {item.tool && <span className="ml-2 text-foreground">{item.tool}</span>}
                     {item.summary && (
                       <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">{item.summary}</p>
                     )}
+                    {runResult && <ChatRunResult result={runResult} quote={quote} />}
                     {item.signature && (
                       <a
                         href={`https://solscan.io/tx/${item.signature}`}
@@ -670,7 +966,8 @@ function ChatPanel({
                       </a>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -697,7 +994,7 @@ function ChatPanel({
 
 // ---------------------------------------------------------------- run log
 
-function RunLogPanel({ agentId, refreshTick }: { agentId: string; refreshTick: number }) {
+function RunLogPanel({ agentId, quote, refreshTick }: { agentId: string; quote: string; refreshTick: number }) {
   const [runs, setRuns] = useState<BuilderRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -757,19 +1054,30 @@ function RunLogPanel({ agentId, refreshTick }: { agentId: string; refreshTick: n
           <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
             {runs.map((run) => {
               const notes = run.decision?.notes ?? [];
-              const orderCount = run.orders?.length ?? 0;
+              const orders = run.orders ?? [];
+              const orderCount = orders.length;
+              const runMode = run.decision?.mode;
+              const runPaper = run.decision?.paper;
+              const runWallet = run.decision?.wallet;
               return (
                 <div key={run.id} className="border border-grid px-3 py-2 font-mono text-xs">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                     <span className="text-foreground">{formatTime(run.created_at)}</span>
                     <span className="uppercase tracking-[0.14em] text-signal">{run.caller}</span>
+                    {runMode && <ModeBadge mode={runMode} />}
                     <span className="text-muted-foreground" title={run.wallet}>
                       {shortAddress(run.wallet)}
                     </span>
                     <span className="text-muted-foreground">
                       {orderCount} {orderCount === 1 ? "order" : "orders"}
                     </span>
-                    <span className="text-muted-foreground">{run.built ? "transactions built" : "not built"}</span>
+                    <span className="text-muted-foreground">
+                      {!run.built
+                        ? "preview, nothing built"
+                        : runMode === "paper"
+                          ? "simulated, nothing sent"
+                          : "transactions built"}
+                    </span>
                   </div>
                   {notes.length > 0 && (
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
@@ -779,6 +1087,17 @@ function RunLogPanel({ agentId, refreshTick }: { agentId: string; refreshTick: n
                         </li>
                       ))}
                     </ul>
+                  )}
+                  {orderCount > 0 && (
+                    <div className="mt-2">
+                      <OrderList orders={orders} quote={runWallet?.quote ?? quote} holdings={runWallet?.holdings} />
+                    </div>
+                  )}
+                  {runPaper && (
+                    <p className="mt-2 text-muted-foreground">
+                      Paper balance after this run: cash {formatUsd(runPaper.cash_usd)} · equity{" "}
+                      {formatUsd(runPaper.equity_usd)}
+                    </p>
                   )}
                   {run.error && <p className="mt-2 break-words text-warn">{run.error}</p>}
                 </div>

@@ -120,6 +120,7 @@ def build_swap(*, payer: str, input_mint: str, output_mint: str, raw_amount: int
             for i in raw if i["programId"] != "ComputeBudget111111111111111111111111111111"
         ],
         "address_lookup_tables": list((b.get("addressesByLookupTableAddress") or {}).keys()),
+        "lookup_table_contents": b.get("addressesByLookupTableAddress") or {},
         "unsigned_tx_base64": tx_b64,
         "tx_bytes": len(base64.b64decode(tx_b64)),
     }

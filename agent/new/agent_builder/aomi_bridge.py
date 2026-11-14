@@ -142,13 +142,28 @@ def create_wallet(owner_wallet: str, app_name: str) -> dict[str, Any]:
     return state(owner_wallet, app_name)
 
 
+def _compact(text: str) -> str:
+    """A tool result for the console. Per-analyst detail is dropped so orders are never cut off."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text[:6000]
+    if isinstance(data, dict) and isinstance(data.get("signals"), list):
+        data["signals"] = [{k: v for k, v in s.items() if k not in ("analysts", "headlines")} if isinstance(s, dict) else s
+                           for s in data["signals"]]
+        for o in data.get("orders") or []:
+            if isinstance(o, dict) and "stage" in o:
+                o["stage"] = {"instructions": len(o["stage"].get("instructions") or []), "description": o["stage"].get("description")}
+    return json.dumps(data)[:60000]
+
+
 def _event(e: dict[str, Any]) -> Optional[dict[str, Any]]:
     if e.get("type") != "message" or e.get("sender") != "agent":
         return None
     if e.get("tool_name"):
         result = e.get("tool_result") or ["", ""]
         return {"type": "tool", "tool": e["tool_name"], "summary": result[0],
-                "result": result[1][:6000] if len(result) > 1 and isinstance(result[1], str) else None}
+                "result": _compact(result[1]) if len(result) > 1 and isinstance(result[1], str) else None}
     return None
 
 

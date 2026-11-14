@@ -47,8 +47,13 @@ export type BuilderBuild = {
   finished_at?: number;
 };
 
+/** paper: runs are simulated on mainnet against a paper balance. live: runs are staged for the agent wallet to sign. */
+export type AgentMode = "paper" | "live";
+
 export type BuilderAgent = {
   id: string;
+  /** Absent only on responses from a backend older than paper mode. */
+  mode?: AgentMode;
   owner_wallet: string;
   prompt: string;
   spec: BuilderSpec;
@@ -104,6 +109,38 @@ export type BuilderSignal = {
   token?: SignalToken | null;
 };
 
+export type BuilderHolding = {
+  mint: string;
+  symbol: string;
+  amount: number;
+  decimals: number;
+  value_usd: number | null;
+};
+
+/** The agent's paper book. These are not on-chain funds. */
+export type PaperBook = {
+  start_usd: number;
+  cash_usd: number;
+  equity_usd: number;
+  holdings: BuilderHolding[];
+};
+
+/** Result of simulating the real swap on Solana mainnet. Never broadcast. */
+export type OrderSimulation = {
+  ok: boolean;
+  backend: string;
+  slot: number | null;
+  error: unknown | null;
+  units_consumed: number | null;
+  tx_bytes: number;
+  lent_in_simulation: { input_raw: number; sol: number };
+  in_spent_raw: number;
+  out_received_raw: number;
+  logs_tail: string[];
+};
+
+export type PaperFill = { tokens: number; usd: number; price_usd: number | null };
+
 export type BuilderOrder = {
   index: number;
   side: string;
@@ -112,20 +149,33 @@ export type BuilderOrder = {
   mint: string;
   usd: number;
   reason: string;
+  /** Live mode, built runs: instructions for the agent wallet to stage and sign. */
+  stage?: { description?: string; kind?: string; instructions?: unknown[]; address_lookup_tables?: unknown[] };
+  /** Paper mode, built runs. */
+  simulation?: OrderSimulation;
+  /** Paper mode, when the simulated fill was booked to the paper balance. */
+  paper_fill?: PaperFill;
+  build_error?: string;
+};
+
+export type EvaluationWallet = {
+  address: string;
+  /** null in paper mode: the balances below are then the paper book. */
+  sol: number | null;
+  cash_usd: number;
+  quote: string;
+  holdings?: BuilderHolding[];
+  spent_today_usd: number;
+  note?: string;
 };
 
 export type BuilderEvaluation = {
   run_id: string;
   agent?: unknown;
   strategy?: unknown;
-  wallet?: {
-    address: string;
-    sol: number;
-    cash_usd: number;
-    quote: string;
-    holdings?: { mint: string; symbol: string; amount: number; decimals: number; value_usd: number | null }[];
-    spent_today_usd: number;
-  };
+  mode?: AgentMode;
+  paper?: PaperBook | null;
+  wallet?: EvaluationWallet;
   limits?: BuilderLimits;
   notes?: string[];
   signals?: BuilderSignal[];
@@ -137,7 +187,13 @@ export type BuilderRun = {
   wallet: string;
   caller: string;
   built: boolean;
-  decision?: { signals?: BuilderSignal[]; notes?: string[] } | null;
+  decision?: {
+    mode?: AgentMode;
+    signals?: BuilderSignal[];
+    notes?: string[];
+    wallet?: EvaluationWallet;
+    paper?: PaperBook | null;
+  } | null;
   orders?: BuilderOrder[] | null;
   error?: string | null;
   created_at: string;
@@ -147,14 +203,20 @@ export type AomiState = {
   connected: boolean;
   reason?: string;
   app?: string;
+  /** On-chain balances of the agent wallet, in both modes. */
   wallet?: { address: string; sol: number; cash_usd: number } | null;
   lane?: string;
+  mode?: AgentMode;
+  /** Paper mode only, once the agent wallet exists. */
+  paper?: PaperBook;
 };
 
 export type ChatEvent = {
   type: string;
   tool?: string;
   summary?: string;
+  /** Raw tool result text. The server cuts it at 6000 characters, so it may not parse. */
+  result?: string | null;
   signature?: string;
 };
 
@@ -245,6 +307,8 @@ export const builderApi = {
   get: (id: string, signal?: AbortSignal) => call<BuilderAgent>(agentPath(id), { signal }),
   compile: (id: string, token: string) =>
     call<BuilderAgent>(`${agentPath(id)}/compile`, { method: "POST", token }),
+  setAgentMode: (id: string, mode: AgentMode, token: string) =>
+    call<BuilderAgent>(`${agentPath(id)}/mode`, { method: "POST", body: { mode }, token }),
   source: (id: string, signal?: AbortSignal) =>
     call<{ files: Record<string, string> }>(`${agentPath(id)}/source`, { signal }),
   runs: (id: string, signal?: AbortSignal) =>
@@ -280,6 +344,12 @@ export function shortAddress(address: string | null | undefined): string {
 export function formatUsd(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "-";
   return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+/** Token amounts: up to 6 decimals, no trailing zeros. */
+export function formatAmount(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "-";
+  return value.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
 
 export function formatScore(value: number | null | undefined): string {
