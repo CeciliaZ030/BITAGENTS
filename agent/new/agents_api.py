@@ -258,12 +258,19 @@ def require_wallet_session(
     return wallet
 
 
+from agent_builder import store as builder_store
+from agent_builder.api import make_router as make_builder_router
+
+app.include_router(make_builder_router(require_wallet_session, require_internal_key))
+
+
 @app.on_event("startup")
 def _startup() -> None:
     if not db_configured():
         raise RuntimeError("DATABASE_URL is not set. Add your Neon connection string to agent/new/.env")
     try:
         init_db()
+        builder_store.init()
     except Exception as exc:
         raise RuntimeError(f"Neon database init failed: {exc}") from exc
     print("  database ready")
