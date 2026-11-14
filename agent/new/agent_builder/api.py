@@ -164,4 +164,26 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
             raise HTTPException(409, "This agent is not deployed.")
         return evaluate(a, body.wallet, body.build, "app")
 
+    def _aomi_unavailable() -> None:
+        # The Aomi leg (agent wallet, chat, signing) is wired in the next change.
+        if not os.environ.get("AOMI_BACKEND_URL"):
+            raise HTTPException(503, "This server is not connected to an Aomi backend yet (AOMI_BACKEND_URL is not set). "
+                                     "Signals, compile and the run log work; agent wallet, chat and signing do not.")
+        raise HTTPException(503, "Aomi backend is configured but the wallet and chat bridge is not implemented yet.")
+
+    @r.get("/agents/{agent_id}/aomi")
+    def aomi_state(agent_id: str, _: str = Depends(require_wallet_session)) -> dict[str, Any]:
+        _agent(agent_id)
+        _aomi_unavailable()
+
+    @r.post("/agents/{agent_id}/aomi/wallet")
+    def aomi_wallet(agent_id: str, _: str = Depends(require_wallet_session)) -> dict[str, Any]:
+        _agent(agent_id)
+        _aomi_unavailable()
+
+    @r.post("/agents/{agent_id}/chat")
+    def chat(agent_id: str, _: str = Depends(require_wallet_session)) -> dict[str, Any]:
+        _agent(agent_id)
+        _aomi_unavailable()
+
     return r
