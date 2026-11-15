@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from ..contract import Strategy
 from .signal_basket import SignalBasket
+from .trigger_basket import TriggerBasket
 
-REGISTRY: dict[str, Strategy] = {s.name: s for s in (SignalBasket(),)}
+REGISTRY: dict[str, Strategy] = {s.name: s for s in (SignalBasket(), TriggerBasket())}
 
 
 def get(name: str) -> Strategy:

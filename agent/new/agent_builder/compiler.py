@@ -119,6 +119,15 @@ def compile_agent(agent_id: str) -> None:
                 shutil.copy2(so, tmp)
                 tmp.replace(dest)
                 build["installed"] = {"path": str(dest), "target": "local Aomi backend (AOMI_APPS_DIR)"}
+                # The backend scans its plugin directory on a timer. Ready means it has registered the app.
+                progress("register")
+                from . import aomi_bridge
+                waited = time.time()
+                while aomi_bridge.configured() is None and aomi_bridge.application_id(agent["app_name"]) is None:
+                    if time.time() - waited > 90:
+                        raise RuntimeError("the Aomi backend did not register the app within 90 seconds")
+                    time.sleep(2)
+                build["registered_seconds"] = round(time.time() - waited, 1)
             else:
                 build["installed"] = None
                 build["install_note"] = "AOMI_APPS_DIR is not set, so the plugin was built but not loaded into an Aomi backend."

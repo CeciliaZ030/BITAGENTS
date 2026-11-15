@@ -53,6 +53,37 @@ def resolve_xstock(symbol: str) -> dict[str, Any]:
     return {"error": f"no verified {want} token on Jupiter"}
 
 
+_LIVE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def xstock_live(symbol: str) -> dict[str, Any]:
+    """The verified xStock for a ticker with its current price and percent change over 5, 60, 360 and 1440 minutes."""
+    want = f"{symbol.upper()}x"
+    with _LOCK:
+        hit = _LIVE.get(want)
+        if hit and time.time() - hit[0] < 20:
+            return hit[1]
+    resp = None
+    for wait in (0, 1.5, 4):
+        time.sleep(wait)
+        resp = _jupiter_get(f"{JUPITER_TOKENS_API}/search", {"query": want})
+        if resp.ok:
+            break
+    if not resp.ok:
+        return {"error": f"Jupiter token search failed ({resp.status_code})"}
+    for t in resp.json():
+        if t.get("symbol") == want and t.get("isVerified"):
+            out = {"symbol": want, "mint": t["id"], "decimals": int(t["decimals"]), "name": t.get("name"),
+                   "usd_price": t.get("usdPrice"), "icon": t.get("icon"),
+                   "change_pct": {m: (t.get(k) or {}).get("priceChange")
+                                  for m, k in ((5, "stats5m"), (60, "stats1h"), (360, "stats6h"), (1440, "stats24h"))}}
+            with _LOCK:
+                _LIVE[want] = (time.time(), out)
+                _TOKENS[want] = (time.time(), {k: v for k, v in out.items() if k != "change_pct"})
+            return out
+    return {"error": f"no verified {want} token on Jupiter"}
+
+
 def holdings(wallet: str) -> tuple[list[Holding], float]:
     """SPL balances of `wallet`, and its SOL balance."""
     out: list[Holding] = []

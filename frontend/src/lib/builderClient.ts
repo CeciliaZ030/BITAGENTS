@@ -11,9 +11,12 @@ export type BuilderSpec = {
     params: {
       symbols: string[];
       per_symbol_usd: number;
-      buy_threshold: number;
-      sell_threshold: number;
-      lookback_days: number;
+      buy_threshold?: number;
+      sell_threshold?: number;
+      lookback_days?: number;
+      trigger_symbol?: string;
+      trigger_pct?: number;
+      window_minutes?: number;
     };
     schedule_minutes: number;
   };
@@ -99,8 +102,13 @@ export type BuilderSignal = {
   price: number | null;
   bars?: number;
   action: "buy" | "sell" | "hold";
-  composite_score: number;
-  confidence: number;
+  composite_score?: number;
+  confidence?: number;
+  kind?: "trigger" | "basket";
+  change_pct?: number | null;
+  threshold_pct?: number;
+  window_minutes?: number;
+  fired?: boolean;
   signal_counts?: { bullish: number; bearish: number; neutral: number };
   analysts?: AnalystOpinion[];
   headlines?: string[];

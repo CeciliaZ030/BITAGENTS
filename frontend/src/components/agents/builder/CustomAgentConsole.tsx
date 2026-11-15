@@ -439,6 +439,24 @@ function SignalRow({ signal }: { signal: BuilderSignal }) {
 
       <div className="grid grid-cols-2 gap-4 border-t border-grid px-3 py-3 sm:grid-cols-4">
         <Field label="Price">{formatUsd(signal.price)}</Field>
+        {signal.kind ? (
+          <>
+            <Field label={`Change, ${signal.window_minutes} min`}>
+              {signal.change_pct != null ? `${signal.change_pct >= 0 ? "+" : ""}${signal.change_pct.toFixed(2)}%` : "-"}
+            </Field>
+            <Field label="Role">{signal.kind === "trigger" ? "Trigger" : "Basket"}</Field>
+            <Field label="Trigger">
+              {signal.kind === "trigger" ? (
+                <span className={signal.fired ? "text-signal" : "text-muted-foreground"}>
+                  +{signal.threshold_pct}% · {signal.fired ? "fired" : "not fired"}
+                </span>
+              ) : (
+                "-"
+              )}
+            </Field>
+          </>
+        ) : (
+          <>
         <Field label="Composite score">{formatScore(signal.composite_score)}</Field>
         <Field label="Confidence">{signal.confidence ?? "-"}</Field>
         <Field label="Analysts">
@@ -454,6 +472,8 @@ function SignalRow({ signal }: { signal: BuilderSignal }) {
             "-"
           )}
         </Field>
+          </>
+        )}
       </div>
 
       <div className="border-t border-grid px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">

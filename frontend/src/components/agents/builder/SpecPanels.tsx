@@ -24,11 +24,16 @@ export function StrategyPanel({ agent, className }: { agent: BuilderAgent; class
     <Panel title="Strategy" className={className}>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <Field label="Template">{strategy.template}</Field>
-        <Field label="Symbols">{params.symbols?.join(", ") || "-"}</Field>
+        {params.trigger_symbol != null && (
+          <Field label="Trigger">
+            {params.trigger_symbol} +{params.trigger_pct}% in {params.window_minutes} min
+          </Field>
+        )}
+        <Field label={params.trigger_symbol != null ? "Buys" : "Symbols"}>{params.symbols?.join(", ") || "-"}</Field>
         <Field label="Per symbol">{formatUsd(params.per_symbol_usd)}</Field>
-        <Field label="Buy threshold">{params.buy_threshold}</Field>
-        <Field label="Sell threshold">{params.sell_threshold}</Field>
-        <Field label="Lookback">{params.lookback_days} days</Field>
+        {params.buy_threshold != null && <Field label="Buy threshold">{params.buy_threshold}</Field>}
+        {params.sell_threshold != null && <Field label="Sell threshold">{params.sell_threshold}</Field>}
+        {params.lookback_days != null && <Field label="Lookback">{params.lookback_days} days</Field>}
         <Field label="Schedule">every {strategy.schedule_minutes} min</Field>
       </div>
     </Panel>

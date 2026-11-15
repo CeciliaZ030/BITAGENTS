@@ -25,6 +25,7 @@ import {
 
 // Input suggestions only: clicking one fills the textarea.
 const EXAMPLE_BRIEFS = [
+  "When Nvidia goes up by 2% in 1 hour, buy the Mag7. Put 1 dollar into each stock, at most 7 dollars a day. Check every 5 minutes.",
   "Trade NVIDIA and Tesla for me. Check every hour. Put at most 3 dollars into each when the analysts say buy, and never more than 12 dollars a day.",
   "Watch Apple, Microsoft and Google once a day. Buy 5 dollars of any that the analysts rate a buy, sell when they turn bearish. Cap spending at 20 dollars per day.",
   "Follow Coinbase and MicroStrategy every 30 minutes. Buy 2 dollars on a strong buy signal only, max 10 dollars a day, 0.5% slippage.",

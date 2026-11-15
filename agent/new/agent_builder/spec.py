@@ -78,6 +78,8 @@ def _system_prompt() -> str:
         "- Use only what the user said. Where they gave no number, choose a cautious one: "
         "per_symbol_usd 5, max_trade_usd 5, max_daily_usd 20, schedule_minutes 60.\n"
         "- limits.max_trade_usd must be >= strategy.params.per_symbol_usd.\n"
+        "- Pick the template that matches the rule the user describes. 'Mag7' or 'Magnificent Seven' means the symbols "
+        "AAPL, MSFT, GOOGL, AMZN, META, NVDA, TSLA. limits.max_daily_usd must cover one full basket purchase.\n"
         "- app.brief is the agent's system preamble, in second person ('You are ...'). State what it trades, "
         "its limits, that it only acts through its run and status tools, and that it never invents prices or signals.\n"
         "- app.skill is markdown: when to call status, when to call run, how to report signals and orders, "
