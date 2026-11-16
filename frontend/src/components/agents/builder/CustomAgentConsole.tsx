@@ -791,7 +791,7 @@ function HostedAomiPanel({
         </p>
         {reason && <p className="break-words text-muted-foreground">{reason}</p>}
         <p className="text-muted-foreground">
-          This agent runs in Aomi. Your agent wallet, signing and schedule live there. Runs appear in the run log
+          This strategy is run by the BIT Agents agent in Aomi. Your agent wallet, signing and schedule live there. Runs appear in the run log
           on this page.
         </p>
         <Field label="Aomi app">{hosted.app}</Field>

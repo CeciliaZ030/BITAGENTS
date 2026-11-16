@@ -44,7 +44,7 @@ def _public(a: dict[str, Any]) -> dict[str, Any]:
 def _agent(agent_id: str) -> dict[str, Any]:
     a = store.get_agent(agent_id)
     if not a:
-        raise HTTPException(404, "No such agent.")
+        raise HTTPException(404, "No such strategy.")
     return a
 
 
@@ -130,7 +130,7 @@ def evaluate(agent: dict[str, Any], wallet: str, build: bool, caller: str) -> di
         market.price_holdings(now)
         out["paper"] = {"start_usd": after["start_usd"], "cash_usd": after["cash_usd"], "holdings": [asdict(h) for h in now],
                         "equity_usd": after["cash_usd"] + sum(h.value_usd or 0 for h in now)}
-        out["wallet"]["note"] = "Paper mode: these balances are the agent's paper book, not on-chain funds."
+        out["wallet"]["note"] = "Paper mode: these balances are the strategy's paper book, not on-chain funds."
         if build:
             out["next"] = ("PAPER MODE. Each order's real Jupiter swap was already simulated on Solana mainnet and booked to the "
                            "paper balance; see `simulation` and `paper_fill`. Report the signals, fills and paper balance. "
@@ -243,7 +243,7 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
         """Called by the agent's Aomi app. Returns the decision and unsigned swap instructions."""
         a = _agent(agent_id)
         if a["build_status"] != "ready":
-            raise HTTPException(409, "This agent is not deployed.")
+            raise HTTPException(409, "This strategy is not deployed.")
         return evaluate(a, body.wallet, body.build, "app")
 
     def _with_balances(st: dict[str, Any], agent: dict[str, Any]) -> dict[str, Any]:
@@ -266,11 +266,11 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
         if not app:
             return None
         chat = os.environ.get("AOMI_HOSTED_CHAT_URL", "https://staging.aomi.chat").rstrip("/")
-        return {"app": app, "chat_url": f"{chat}?app={app}&lock_app=1", "prompt": f"Run agent {agent['id']}"}
+        return {"app": app, "chat_url": f"{chat}?app={app}&lock_app=1", "prompt": f"Run strategy {agent['id']}"}
 
     def _local_only(agent: dict[str, Any]) -> None:
         if _hosted(agent):
-            raise HTTPException(409, "This agent runs on Aomi. Open it there to create a wallet and chat.")
+            raise HTTPException(409, "This strategy runs on Aomi. Open it there to create a wallet and chat.")
 
     @r.get("/agents/{agent_id}/aomi")
     def aomi_state(agent_id: str, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
@@ -278,7 +278,7 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
         hosted = _hosted(a)
         if hosted:
             return {"connected": a["build_status"] == "ready", "app": hosted["app"], "mode": a["mode"], "hosted": hosted,
-                    "reason": None if a["build_status"] == "ready" else "Deploy the agent first."}
+                    "reason": None if a["build_status"] == "ready" else "Deploy the strategy first."}
         return _with_balances(aomi_bridge.state(wallet, a["app_name"]), a)
 
     @r.post("/agents/{agent_id}/aomi/wallet")
