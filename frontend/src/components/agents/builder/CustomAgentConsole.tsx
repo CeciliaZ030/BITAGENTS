@@ -122,9 +122,11 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
               defaultWalletSource={aomi?.wallet?.address ? "Aomi agent wallet" : phantomAddress ? "connected wallet" : null}
               onRun={bumpActivity}
             />
-            <ChatPanel agentId={agent.id} token={token} quote={agent.spec.limits.quote} onReply={bumpActivity} />
+            {!aomi?.hosted && (
+              <ChatPanel agentId={agent.id} token={token} quote={agent.spec.limits.quote} onReply={bumpActivity} />
+            )}
             <RunLogPanel agentId={agent.id} quote={agent.spec.limits.quote} refreshTick={activityTick} />
-            <SourcePanel agentId={agent.id} buildStatus={agent.build_status} />
+            {!agent.build?.hosted && <SourcePanel agentId={agent.id} buildStatus={agent.build_status} />}
           </div>
           <div className="min-w-0 space-y-6">
             <AomiWalletPanel
@@ -681,6 +683,52 @@ function SignalsPanel({
 
 // ------------------------------------------------------------ aomi wallet
 
+function HostedAomiPanel({
+  hosted,
+  ready,
+  reason,
+}: {
+  hosted: NonNullable<AomiState["hosted"]>;
+  ready: boolean;
+  reason?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyPrompt() {
+    await navigator.clipboard.writeText(hosted.prompt);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <Panel title="Run on Aomi">
+      <div className="space-y-3 font-mono text-xs">
+        <p className={`uppercase tracking-[0.14em] ${ready ? "text-signal" : "text-warn"}`}>
+          {ready ? "Deployed" : "Not deployed"}
+        </p>
+        {reason && <p className="break-words text-muted-foreground">{reason}</p>}
+        <p className="text-muted-foreground">
+          This agent runs in Aomi. Your agent wallet, signing and schedule live there. Runs appear in the run log
+          on this page.
+        </p>
+        <Field label="Aomi app">{hosted.app}</Field>
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Say this in Aomi</div>
+          <p className="mt-1 break-all text-foreground">{hosted.prompt}</p>
+          <button type="button" onClick={() => void copyPrompt()} className={`${BTN_GHOST} mt-2`}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        {ready && (
+          <a href={hosted.chat_url} target="_blank" rel="noreferrer" className={`${BTN_PRIMARY} inline-block`}>
+            Open in Aomi
+          </a>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function AomiWalletPanel({
   agentId,
   token,
@@ -751,6 +799,10 @@ function AomiWalletPanel({
   }
 
   const address = state?.wallet?.address;
+
+  if (state?.hosted) {
+    return <HostedAomiPanel hosted={state.hosted} ready={state.connected} reason={state.reason} />;
+  }
 
   return (
     <Panel

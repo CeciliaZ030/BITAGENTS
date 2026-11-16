@@ -175,7 +175,12 @@ export function BuildPanel({
 
         {agent.build_status === "ready" && (
           <div className="space-y-4 border-t border-grid pt-4">
-            {build.artifact ? (
+            {build.hosted ? (
+              <div className="space-y-2">
+                <Field label="Published to Aomi app">{build.hosted.app}</Field>
+                <p className="font-mono text-xs text-muted-foreground">{build.hosted.note}</p>
+              </div>
+            ) : build.artifact ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Artifact">
                   <span title={build.artifact.path}>{baseName(build.artifact.path)}</span>

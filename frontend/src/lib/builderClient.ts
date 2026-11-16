@@ -44,6 +44,8 @@ export type BuilderBuild = {
   artifact?: { path: string; bytes: number; sha256: string };
   installed?: { path: string; target: string } | null;
   install_note?: string;
+  /** Set when the agent was published to a shared hosted Aomi app, not compiled locally. */
+  hosted?: { app: string; note: string };
   error?: string;
   files?: string[];
   started_at?: number;
@@ -217,6 +219,8 @@ export type AomiState = {
   mode?: AgentMode;
   /** Paper mode only, once the agent wallet exists. */
   paper?: PaperBook;
+  /** Set when agents run on a hosted Aomi: the wallet and chat live there, not on this site. */
+  hosted?: { app: string; chat_url: string; prompt: string };
 };
 
 export type ChatEvent = {

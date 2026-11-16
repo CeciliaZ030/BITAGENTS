@@ -95,6 +95,24 @@ def compile_agent(agent_id: str) -> None:
         build["stage"] = stage
         store.set_build(agent_id, "building", build)
 
+    hosted_app = os.environ.get("AOMI_HOSTED_APP", "").strip()
+    if hosted_app:
+        # Hosted Aomi runs one shared app for every agent; deploying is publishing the spec to it.
+        try:
+            progress("validate")
+            AgentSpec.model_validate(agent["spec"])
+            progress("publish")
+            build["hosted"] = {"app": hosted_app,
+                               "note": "Runs on the shared Aomi app, which reads this agent's spec by id on every call."}
+            build["finished_at"] = time.time()
+            build["stage"] = "done"
+            store.set_build(agent_id, "ready", build)
+        except Exception as exc:
+            build["error"] = str(exc)
+            build["finished_at"] = time.time()
+            store.set_build(agent_id, "failed", build)
+        return
+
     try:
         with _BUILD_LOCK:
             progress("render")

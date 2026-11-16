@@ -152,8 +152,10 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
     r = APIRouter(prefix="/builder", tags=["agent builder"])
 
     def require_app_key(x_app_key: Optional[str] = Header(default=None)) -> None:
+        # Enforced only when BUILDER_APP_KEY is set. Unset, the evaluate route is open:
+        # it returns unsigned swaps and paper fills, and cannot move funds.
         want = os.environ.get("BUILDER_APP_KEY", "")
-        if not want or not x_app_key or not hmac.compare_digest(want, x_app_key):
+        if want and (not x_app_key or not hmac.compare_digest(want, x_app_key)):
             raise HTTPException(403, "Invalid app key.")
 
     @r.get("/templates", dependencies=[Depends(require_internal_key)])
@@ -243,18 +245,37 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
                                "equity_usd": book["cash_usd"] + sum(h.value_usd or 0 for h in now)}
         return st
 
+    def _hosted(agent: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Set when agents run on a hosted Aomi through the shared app, not a local backend."""
+        app = os.environ.get("AOMI_HOSTED_APP", "").strip()
+        if not app:
+            return None
+        chat = os.environ.get("AOMI_HOSTED_CHAT_URL", "https://staging.aomi.chat").rstrip("/")
+        return {"app": app, "chat_url": f"{chat}?app={app}&lock_app=1", "prompt": f"Run agent {agent['id']}"}
+
+    def _local_only(agent: dict[str, Any]) -> None:
+        if _hosted(agent):
+            raise HTTPException(409, "This agent runs on Aomi. Open it there to create a wallet and chat.")
+
     @r.get("/agents/{agent_id}/aomi")
     def aomi_state(agent_id: str, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
         a = _agent(agent_id)
+        hosted = _hosted(a)
+        if hosted:
+            return {"connected": a["build_status"] == "ready", "app": hosted["app"], "mode": a["mode"], "hosted": hosted,
+                    "reason": None if a["build_status"] == "ready" else "Deploy the agent first."}
         return _with_balances(aomi_bridge.state(wallet, a["app_name"]), a)
 
     @r.post("/agents/{agent_id}/aomi/wallet")
     def aomi_wallet(agent_id: str, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
         a = _agent(agent_id)
+        _local_only(a)
         return _with_balances(aomi_bridge.create_wallet(wallet, a["app_name"]), a)
 
     @r.post("/agents/{agent_id}/chat")
     def chat(agent_id: str, body: ChatBody, wallet: str = Depends(require_wallet_session)) -> dict[str, Any]:
-        return aomi_bridge.chat(wallet, _agent(agent_id)["app_name"], body.message, body.session_id)
+        a = _agent(agent_id)
+        _local_only(a)
+        return aomi_bridge.chat(wallet, a["app_name"], body.message, body.session_id)
 
     return r
