@@ -101,7 +101,7 @@ export function BuildPanel({
 
   return (
     <Panel
-      title="Compile and deploy"
+      title={build.hosted ? "Deploy" : "Compile and deploy"}
       action={<StatusBadge status={agent.build_status} />}
       className={className}
     >
@@ -119,7 +119,9 @@ export function BuildPanel({
                 ? "Building…"
                 : agent.build_status === "draft"
                   ? "Compile and deploy"
-                  : "Compile again"}
+                  : build.hosted
+                    ? "Deploy again"
+                    : "Compile again"}
           </button>
           {!token && (
             <span className="font-mono text-xs text-muted-foreground">Sign in with your wallet to compile.</span>
@@ -141,7 +143,7 @@ export function BuildPanel({
         {(build.stage || elapsed) && (
           <div className="grid gap-4 sm:grid-cols-2">
             {build.stage && <Field label="Build stage">{build.stage}</Field>}
-            {elapsed && <Field label="Build time">{elapsed}</Field>}
+            {elapsed && !build.hosted && <Field label="Build time">{elapsed}</Field>}
           </div>
         )}
 

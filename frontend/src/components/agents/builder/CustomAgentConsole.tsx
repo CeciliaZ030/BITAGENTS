@@ -95,7 +95,7 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
             <Field label="Template">{agent.spec.strategy.template}</Field>
             <Field label="Build status">{agent.build_status}</Field>
             <Field label="Spec sha">{agent.spec_sha}</Field>
-            <Field label="App name">{agent.app_name}</Field>
+            <Field label="App name">{agent.build?.hosted?.app ?? agent.app_name}</Field>
             <Field label="Agent id">{agent.id}</Field>
             <Field label="Owner">
               <span title={agent.owner_wallet}>{shortAddress(agent.owner_wallet)}</span>
