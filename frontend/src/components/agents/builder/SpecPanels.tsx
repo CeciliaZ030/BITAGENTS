@@ -21,7 +21,7 @@ export function StrategyPanel({ agent, className }: { agent: BuilderAgent; class
   const { strategy } = agent.spec;
   const params = strategy.params;
   return (
-    <Panel title="Strategy" className={className}>
+    <Panel title="Rules" className={className}>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <Field label="Template">{strategy.template}</Field>
         {params.trigger_symbol != null && (
@@ -34,7 +34,7 @@ export function StrategyPanel({ agent, className }: { agent: BuilderAgent; class
         {params.buy_threshold != null && <Field label="Buy threshold">{params.buy_threshold}</Field>}
         {params.sell_threshold != null && <Field label="Sell threshold">{params.sell_threshold}</Field>}
         {params.lookback_days != null && <Field label="Lookback">{params.lookback_days} days</Field>}
-        <Field label="Schedule">every {strategy.schedule_minutes} min</Field>
+        <Field label="Check every">{strategy.schedule_minutes} min</Field>
       </div>
     </Panel>
   );
@@ -51,7 +51,7 @@ export function SpecPanels({ agent }: { agent: BuilderAgent }) {
         <LimitsPanel limits={agent.spec.limits} />
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
-        <Panel title="Agent brief">
+        <Panel title="Brief">
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
             {agent.spec.app.brief}
           </p>

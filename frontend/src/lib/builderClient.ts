@@ -229,7 +229,7 @@ export type AomiState = {
   /** Paper mode only, once the agent wallet exists. */
   paper?: PaperBook;
   /** Set when agents run on a hosted Aomi: the wallet and chat live there, not on this site. */
-  hosted?: { app: string; chat_url: string; prompt: string };
+  hosted?: { app: string; chat_url: string; prompt: string; schedule_prompt?: string };
 };
 
 export type ChatEvent = {

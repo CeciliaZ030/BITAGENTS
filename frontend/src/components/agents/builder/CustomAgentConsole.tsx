@@ -71,7 +71,7 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
 
   if (!agent) {
     return (
-      <AppShell title="Custom agent">
+      <AppShell title="Your strategy">
         {loadError ? (
           <div className="space-y-4">
             <Notice tone="warn">{loadError}</Notice>
@@ -80,7 +80,7 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
             </Link>
           </div>
         ) : (
-          <p className="font-mono text-xs text-muted-foreground">Loading agent {agentId}…</p>
+          <p className="font-mono text-xs text-muted-foreground">Loading strategy {agentId}…</p>
         )}
       </AppShell>
     );
@@ -91,13 +91,13 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
   return (
     <AppShell title={agent.spec.name} subtitle={agent.spec.description}>
       <div className="space-y-6">
-        <Panel title="Agent" action={<StatusBadge status={agent.build_status} />}>
+        <Panel title="Strategy" action={<StatusBadge status={agent.build_status} />}>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <Field label="Template">{agent.spec.strategy.template}</Field>
             <Field label="Build status">{agent.build_status}</Field>
             <Field label="Spec sha">{agent.spec_sha}</Field>
             <Field label="App name">{agent.build?.hosted?.app ?? agent.app_name}</Field>
-            <Field label="Agent id">{agent.id}</Field>
+            <Field label="Strategy id">{agent.id}</Field>
             <Field label="Owner">
               <span title={agent.owner_wallet}>{shortAddress(agent.owner_wallet)}</span>
             </Field>
@@ -201,7 +201,7 @@ function ModePanel({
     if (
       next === "live" &&
       !window.confirm(
-        "Switch this agent to live? Live runs are staged for the agent wallet to sign and spend real funds."
+        "Switch this strategy to live? Live runs are staged for the agent wallet to sign and spend real funds."
       )
     ) {
       return;
@@ -427,7 +427,7 @@ function PerformancePanel({ agentId, quote, refreshTick }: { agentId: string; qu
         {error && <p className="break-words text-warn">{error}</p>}
         {!books && !error && <p className="text-muted-foreground">Loading…</p>}
         {books && books.length === 0 && (
-          <p className="text-muted-foreground">No wallet has a paper position in this agent yet.</p>
+          <p className="text-muted-foreground">No wallet has a paper position in this strategy yet.</p>
         )}
         {books?.map((book) => {
           const pct = book.start_usd ? (book.pnl_usd / book.start_usd) * 100 : 0;
@@ -746,7 +746,7 @@ function SignalsPanel({
             </div>
 
             <div>
-              <div className={LABEL}>Orders the agent would place</div>
+              <div className={LABEL}>Orders it would place</div>
               {orders.length === 0 ? (
                 <p className="mt-2 font-mono text-xs text-muted-foreground">
                   No orders. The agent would not trade on this evaluation.
@@ -775,12 +775,12 @@ function HostedAomiPanel({
   ready: boolean;
   reason?: string;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
-  async function copyPrompt() {
-    await navigator.clipboard.writeText(hosted.prompt);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+  async function copyPrompt(text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(text);
+    window.setTimeout(() => setCopied(null), 1500);
   }
 
   return (
@@ -796,12 +796,28 @@ function HostedAomiPanel({
         </p>
         <Field label="Aomi app">{hosted.app}</Field>
         <div>
-          <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Say this in Aomi</div>
+          <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">To run it once, say this in Aomi</div>
           <p className="mt-1 break-all text-foreground">{hosted.prompt}</p>
-          <button type="button" onClick={() => void copyPrompt()} className={`${BTN_GHOST} mt-2`}>
-            {copied ? "Copied" : "Copy"}
+          <button type="button" onClick={() => void copyPrompt(hosted.prompt)} className={`${BTN_GHOST} mt-2`}>
+            {copied === hosted.prompt ? "Copied" : "Copy"}
           </button>
         </div>
+        {hosted.schedule_prompt && (
+          <div>
+            <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+              To keep it running, say this instead
+            </div>
+            <p className="mt-1 break-all text-foreground">{hosted.schedule_prompt}</p>
+            <button
+              type="button"
+              onClick={() => void copyPrompt(hosted.schedule_prompt ?? "")}
+              className={`${BTN_GHOST} mt-2`}
+            >
+              {copied === hosted.schedule_prompt ? "Copied" : "Copy"}
+            </button>
+            <p className="mt-2 text-muted-foreground">It does not run by itself until you schedule it in Aomi.</p>
+          </div>
+        )}
         {ready && (
           <a href={hosted.chat_url} target="_blank" rel="noreferrer" className={`${BTN_PRIMARY} inline-block`}>
             Open in Aomi
@@ -946,7 +962,7 @@ function AomiWalletPanel({
               </>
             ) : (
               <>
-                <p className="text-muted-foreground">No agent wallet exists for this agent yet.</p>
+                <p className="text-muted-foreground">No agent wallet exists for this strategy yet.</p>
                 <button
                   type="button"
                   onClick={() => void createWallet()}
@@ -1203,7 +1219,7 @@ function RunLogPanel({ agentId, quote, refreshTick }: { agentId: string; quote: 
         {error && <Notice tone="warn">{error}</Notice>}
         {!runs && !error && <p className="font-mono text-xs text-muted-foreground">Loading runs…</p>}
         {runs && runs.length === 0 && (
-          <p className="font-mono text-xs text-muted-foreground">This agent has no recorded runs.</p>
+          <p className="font-mono text-xs text-muted-foreground">This strategy has no recorded runs.</p>
         )}
         {runs && runs.length > 0 && (
           <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">

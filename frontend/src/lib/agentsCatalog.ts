@@ -36,7 +36,7 @@ export const FEATURED_AGENTS: MarketplaceAgent[] = [
     category: "Trading",
     description:
       "Recurring Jupiter buys. Each swap is simulated on Aomi before the Circle wallet signs it.",
-    tagline: "Jupiter buy · Aomi fork · Circle sign",
+    tagline: "Jupiter buy · Aomi simulated · Circle sign",
     pricePerTask: "0.5% / tx",
     runs: "-",
     volumeSol: "-",
@@ -53,8 +53,8 @@ export const FEATURED_AGENTS: MarketplaceAgent[] = [
     category: "Trading",
     description:
       "Sized Jupiter buys and sells from a dedicated Circle wallet. Aomi simulates each swap before Circle signs.",
-    tagline: "Buy or sell · Aomi fork · Circle sign",
-    pricePerTask: "Aomi gate",
+    tagline: "Buy or sell · Aomi simulated · Circle sign",
+    pricePerTask: "-",
     runs: "-",
     volumeSol: "-",
     rating: 4.8,
@@ -70,8 +70,8 @@ export const FEATURED_AGENTS: MarketplaceAgent[] = [
     category: "Trading",
     description:
       "SOL entries into a token after a size cap and a mint-authority check. Aomi simulates the swap before Circle signs.",
-    tagline: "SOL entry · renounce check · Aomi fork",
-    pricePerTask: "Aomi gate",
+    tagline: "SOL entry · renounce check · Aomi simulated",
+    pricePerTask: "-",
     runs: "-",
     volumeSol: "-",
     rating: 4.7,

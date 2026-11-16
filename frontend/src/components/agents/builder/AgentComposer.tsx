@@ -79,15 +79,15 @@ export function AgentComposer() {
 
   return (
     <AppShell
-      title="Create your agent"
-      subtitle="Describe the trading agent you want. The builder composes a spec from your brief, then compiles it into an Aomi app."
+      title="Create your strategy"
+      subtitle="Describe the trading strategy you want. The builder composes a spec from your brief, then deploys it to Aomi, where the BIT Agents agent runs it."
     >
       <div className="space-y-6">
         <WalletGate
           authBusy={authBusy}
           authError={authError}
           isAuthenticated={isAuthenticated}
-          purpose="compose and compile an agent"
+          purpose="compose and deploy a strategy"
         />
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -99,7 +99,7 @@ export function AgentComposer() {
                 disabled={composing}
                 rows={6}
                 maxLength={MAX_PROMPT}
-                placeholder="What should the agent trade, how often should it check, and what are its spending limits?"
+                placeholder="What should it trade, how often should it check, and what are its spending limits?"
                 className={`${INPUT} w-full resize-y leading-relaxed`}
               />
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -107,7 +107,7 @@ export function AgentComposer() {
                   {length} / {MAX_PROMPT} characters · minimum {MIN_PROMPT}
                 </span>
                 <button type="submit" disabled={!token || !lengthOk || composing} className={BTN_PRIMARY}>
-                  {composing ? "Composing…" : agent ? "Compose a new agent" : "Compose agent"}
+                  {composing ? "Composing…" : agent ? "Compose a new strategy" : "Compose strategy"}
                 </button>
               </div>
               {composing && (
@@ -159,12 +159,12 @@ export function AgentComposer() {
 
         {agent && (
           <>
-            <Panel title="Composed agent">
+            <Panel title="Composed strategy">
               <h2 className="font-display text-2xl font-bold">{agent.spec.name}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{agent.spec.description}</p>
               <div className="mt-4 grid grid-cols-2 gap-4 border-t border-grid pt-4 sm:grid-cols-4">
-                <Field label="Agent id">{agent.id}</Field>
-                <Field label="App name">{agent.app_name}</Field>
+                <Field label="Strategy id">{agent.id}</Field>
+                <Field label="App name">{agent.build?.hosted?.app ?? agent.app_name}</Field>
                 <Field label="Spec sha">{agent.spec_sha}</Field>
                 <Field label="Template">{agent.spec.strategy.template}</Field>
               </div>

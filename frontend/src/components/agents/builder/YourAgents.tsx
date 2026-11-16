@@ -16,10 +16,10 @@ export function CreateAgentCard() {
     <Link href="/agents/create" className="block h-full">
       <article className="group flex h-full flex-col border border-dashed border-signal/50 bg-card p-5 transition hover:border-signal">
         <h3 className="font-display text-lg font-bold transition group-hover:text-signal">
-          Create your agent
+          Create your strategy
         </h3>
         <p className="mt-3 text-sm leading-snug text-muted-foreground">
-          Describe a strategy in plain words. The builder composes the spec, compiles it into an Aomi app
+          Describe a strategy in plain words. The builder composes the spec, deploys it to Aomi
           and gives you a console for it.
         </p>
         <div className="mt-auto pt-5">
@@ -53,14 +53,14 @@ export function YourAgents() {
   return (
     <section className="mt-10">
       <div className="mb-4">
-        <h2 className={HEADING}>Your agents</h2>
+        <h2 className={HEADING}>Your strategies</h2>
       </div>
       {hasSession || requested ? (
         <YourAgentsList />
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           <span className="font-mono text-xs text-muted-foreground">
-            Sign in with your wallet to list the agents you built.
+            Sign in with your wallet to list the strategies you built.
           </span>
           <button type="button" onClick={() => setRequested(true)} className={BTN_GHOST}>
             Sign in
@@ -99,7 +99,7 @@ function YourAgentsList() {
     );
   }
   if (error) return <Notice tone="warn">{error}</Notice>;
-  if (!agents) return <p className="font-mono text-xs text-muted-foreground">Loading your agents…</p>;
+  if (!agents) return <p className="font-mono text-xs text-muted-foreground">Loading your strategies…</p>;
   if (agents.length === 0) {
     return (
       <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">

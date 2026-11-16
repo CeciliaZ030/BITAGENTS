@@ -124,11 +124,11 @@ export function BuildPanel({
                     : "Compile again"}
           </button>
           {!token && (
-            <span className="font-mono text-xs text-muted-foreground">Sign in with your wallet to compile.</span>
+            <span className="font-mono text-xs text-muted-foreground">Sign in with your wallet to deploy.</span>
           )}
           {token && !isOwner && (
             <span className="font-mono text-xs text-muted-foreground">
-              Only the owner wallet {shortAddress(agent.owner_wallet)} can compile this agent.
+              Only the owner wallet {shortAddress(agent.owner_wallet)} can deploy this strategy.
             </span>
           )}
         </div>
@@ -137,12 +137,12 @@ export function BuildPanel({
         {pollError && <Notice tone="warn">Status refresh failed: {pollError}</Notice>}
 
         {agent.build_status === "draft" && steps.length === 0 && (
-          <p className="font-mono text-xs text-muted-foreground">Not compiled yet.</p>
+          <p className="font-mono text-xs text-muted-foreground">Not deployed yet.</p>
         )}
 
         {(build.stage || elapsed) && (
           <div className="grid gap-4 sm:grid-cols-2">
-            {build.stage && <Field label="Build stage">{build.stage}</Field>}
+            {build.stage && !build.hosted && <Field label="Build stage">{build.stage}</Field>}
             {elapsed && !build.hosted && <Field label="Build time">{elapsed}</Field>}
           </div>
         )}
@@ -180,7 +180,9 @@ export function BuildPanel({
             {build.hosted ? (
               <div className="space-y-2">
                 <Field label="Published to Aomi app">{build.hosted.app}</Field>
-                <p className="font-mono text-xs text-muted-foreground">{build.hosted.note}</p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  The BIT Agents agent on Aomi reads this strategy&apos;s spec by id on every run.
+                </p>
               </div>
             ) : build.artifact ? (
               <div className="grid gap-4 sm:grid-cols-2">

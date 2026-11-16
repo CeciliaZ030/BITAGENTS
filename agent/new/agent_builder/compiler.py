@@ -103,7 +103,7 @@ def compile_agent(agent_id: str) -> None:
             AgentSpec.model_validate(agent["spec"])
             progress("publish")
             build["hosted"] = {"app": hosted_app,
-                               "note": "Runs on the shared Aomi app, which reads this agent's spec by id on every call."}
+                               "note": "Runs on the shared Aomi app, which reads this strategy's spec by id on every call."}
             build["finished_at"] = time.time()
             build["stage"] = "done"
             store.set_build(agent_id, "ready", build)

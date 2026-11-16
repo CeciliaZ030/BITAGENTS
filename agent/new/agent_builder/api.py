@@ -266,7 +266,8 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
         if not app:
             return None
         chat = os.environ.get("AOMI_HOSTED_CHAT_URL", "https://staging.aomi.chat").rstrip("/")
-        return {"app": app, "chat_url": f"{chat}?app={app}&lock_app=1", "prompt": f"Run strategy {agent['id']}"}
+        return {"app": app, "chat_url": f"{chat}?app={app}&lock_app=1", "prompt": f"Run strategy {agent['id']}",
+                "schedule_prompt": f"Run strategy {agent['id']} every {agent['spec']['strategy']['schedule_minutes']} minutes"}
 
     def _local_only(agent: dict[str, Any]) -> None:
         if _hosted(agent):
