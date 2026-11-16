@@ -135,6 +135,15 @@ export type PaperBook = {
   holdings: BuilderHolding[];
 };
 
+/** One wallet's paper balance for an agent, valued at current prices. */
+export type PerformanceBook = PaperBook & {
+  wallet: string;
+  pnl_usd: number;
+  updated_at: string | null;
+  /** False when a holding could not be priced, so equity is understated. */
+  priced: boolean;
+};
+
 /** Result of simulating the real swap on Solana mainnet. Never broadcast. */
 export type OrderSimulation = {
   ok: boolean;
@@ -323,6 +332,8 @@ export const builderApi = {
     call<BuilderAgent>(`${agentPath(id)}/mode`, { method: "POST", body: { mode }, token }),
   source: (id: string, signal?: AbortSignal) =>
     call<{ files: Record<string, string> }>(`${agentPath(id)}/source`, { signal }),
+  performance: (id: string, signal?: AbortSignal) =>
+    call<{ books: PerformanceBook[] }>(`${agentPath(id)}/performance`, { signal }),
   runs: (id: string, signal?: AbortSignal) =>
     call<{ runs: BuilderRun[] }>(`${agentPath(id)}/runs`, { signal }),
   preview: (id: string, wallet: string, token: string) =>

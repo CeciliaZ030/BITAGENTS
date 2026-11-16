@@ -32,6 +32,7 @@ import {
   shortAddress,
   type AgentMode,
   type AomiState,
+  type PerformanceBook,
   type BuilderAgent,
   type BuilderEvaluation,
   type BuilderHolding,
@@ -124,6 +125,9 @@ export function CustomAgentConsole({ agentId }: { agentId: string }) {
             />
             {!aomi?.hosted && (
               <ChatPanel agentId={agent.id} token={token} quote={agent.spec.limits.quote} onReply={bumpActivity} />
+            )}
+            {agent.mode === "paper" && (
+              <PerformancePanel agentId={agent.id} quote={agent.spec.limits.quote} refreshTick={activityTick} />
             )}
             <RunLogPanel agentId={agent.id} quote={agent.spec.limits.quote} refreshTick={activityTick} />
             {!agent.build?.hosted && <SourcePanel agentId={agent.id} buildStatus={agent.build_status} />}
@@ -386,6 +390,85 @@ function PaperBalance({ paper, quote }: { paper: PaperBook; quote: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+// ------------------------------------------------------------ performance
+
+function PerformancePanel({ agentId, quote, refreshTick }: { agentId: string; quote: string; refreshTick: number }) {
+  const [books, setBooks] = useState<PerformanceBook[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = () =>
+      builderApi
+        .performance(agentId, controller.signal)
+        .then((res) => {
+          setBooks(res.books);
+          setFetchedAt(new Date());
+          setError(null);
+        })
+        .catch((err) => {
+          if (!isAbort(err)) setError(errorText(err));
+        });
+    void load();
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [agentId, refreshTick]);
+
+  return (
+    <Panel title="Paper performance">
+      <div className="space-y-3 font-mono text-xs">
+        {error && <p className="break-words text-warn">{error}</p>}
+        {!books && !error && <p className="text-muted-foreground">Loading…</p>}
+        {books && books.length === 0 && (
+          <p className="text-muted-foreground">No wallet has a paper position in this agent yet.</p>
+        )}
+        {books?.map((book) => {
+          const pct = book.start_usd ? (book.pnl_usd / book.start_usd) * 100 : 0;
+          const up = book.pnl_usd >= 0;
+          return (
+            <div key={book.wallet} className="space-y-3 border border-grid p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <span className="text-foreground" title={book.wallet}>
+                  {shortAddress(book.wallet)}
+                </span>
+                <span className={up ? "text-signal" : "text-warn"}>
+                  {up ? "+" : "-"}
+                  {formatUsd(Math.abs(book.pnl_usd))} ({up ? "+" : "-"}
+                  {Math.abs(pct).toFixed(2)}%)
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <Field label="Equity">{formatUsd(book.equity_usd)}</Field>
+                <Field label={`Cash (${quote})`}>{formatUsd(book.cash_usd)}</Field>
+                <Field label="Started with">{formatUsd(book.start_usd)}</Field>
+              </div>
+              <div className="space-y-1">
+                {book.holdings.map((holding) => (
+                  <div key={holding.mint} className="flex flex-wrap justify-between gap-x-4">
+                    <span className="text-foreground">
+                      {formatAmount(holding.amount)} {holding.symbol}
+                    </span>
+                    <span className="text-muted-foreground">{formatUsd(holding.value_usd)}</span>
+                  </div>
+                ))}
+              </div>
+              {!book.priced && <p className="text-warn">A holding has no price right now, so equity is understated.</p>}
+            </div>
+          );
+        })}
+        <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+          Simulated funds, valued at current prices
+          {fetchedAt ? ` · fetched ${fetchedAt.toLocaleTimeString()} · refreshes every 30 s` : ""}
+        </p>
+      </div>
+    </Panel>
   );
 }
 

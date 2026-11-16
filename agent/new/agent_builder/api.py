@@ -218,6 +218,21 @@ def make_router(require_wallet_session, require_internal_key) -> APIRouter:
         _agent(agent_id)
         return {"runs": store.list_runs(agent_id)}
 
+    @r.get("/agents/{agent_id}/performance", dependencies=[Depends(require_internal_key)])
+    def performance(agent_id: str) -> dict[str, Any]:
+        """Paper balances of every wallet that has run this agent, valued at current prices."""
+        _agent(agent_id)
+        rows = []
+        for book in store.paper_books(agent_id):
+            held = _paper_holdings(book)
+            market.price_holdings(held)
+            equity = book["cash_usd"] + sum(h.value_usd or 0 for h in held)
+            rows.append({"wallet": book["wallet"], "start_usd": book["start_usd"], "cash_usd": book["cash_usd"],
+                         "equity_usd": equity, "pnl_usd": equity - book["start_usd"],
+                         "holdings": [asdict(h) for h in held], "updated_at": book["updated_at"],
+                         "priced": all(h.value_usd is not None for h in held)})
+        return {"books": rows}
+
     @r.post("/agents/{agent_id}/preview")
     def preview(agent_id: str, body: EvaluateBody, _: str = Depends(require_wallet_session)) -> dict[str, Any]:
         """What the strategy would do for a wallet right now. Never builds a transaction."""

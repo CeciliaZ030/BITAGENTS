@@ -138,6 +138,16 @@ def paper_book(agent_id: str, wallet: str) -> dict[str, Any]:
         return {"cash_usd": float(r["cash_usd"]), "positions": r["positions"], "start_usd": PAPER_START_USD}
 
 
+def paper_books(agent_id: str) -> list[dict[str, Any]]:
+    """Every paper balance of this agent that has traded, most recently updated first."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT wallet, cash_usd, positions, updated_at FROM built_agent_paper
+                       WHERE agent_id=%s AND positions::text <> '{}' ORDER BY updated_at DESC LIMIT 20""", (agent_id,))
+        return [{"wallet": r["wallet"], "cash_usd": float(r["cash_usd"]), "positions": r["positions"],
+                 "start_usd": PAPER_START_USD, "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None}
+                for r in cur.fetchall()]
+
+
 def save_paper_book(agent_id: str, wallet: str, book: dict[str, Any]) -> None:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("UPDATE built_agent_paper SET cash_usd=%s, positions=%s, updated_at=NOW() WHERE agent_id=%s AND wallet=%s",
